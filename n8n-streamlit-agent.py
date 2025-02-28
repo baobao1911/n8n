@@ -12,11 +12,11 @@ WEBHOOK_URL_CHAT = "https://baozz.app.n8n.cloud/webhook/ask-bot"
 WEBHOOK_URL_UPLOAD = "https://baozz.app.n8n.cloud/webhook/upload-files"
 
 # Fetch variables for PostgreSQL connection
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
+USER = "postgres.fzeejyvlxgcbpwoeycky"
+PASSWORD = "BaO19112002@"
+HOST = "aws-0-ap-southeast-1.pooler.supabase.com"
+PORT = "5432"
+DBNAME = "postgres"
 
 BEARER_TOKEN= "191122"
 
