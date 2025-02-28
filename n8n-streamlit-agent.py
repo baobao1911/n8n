@@ -52,6 +52,7 @@ def signup(user_name: str, password: str):
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("INSERT INTO users (user_name, password) VALUES (%s, %s)", (user_name, password))
+        cur.execute("INSERT INTO user_information (memory, user_name) VALUES (%s, %s)", ("None", user_name))
         conn.commit()
         cur.close()
         conn.close()
