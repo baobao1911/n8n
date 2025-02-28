@@ -5,8 +5,6 @@ from psycopg2.extras import DictCursor
 import psycopg2
 import os
 
-# Load environment variables from .env file
-load_dotenv()
 WEBHOOK_URL_CHAT = "https://baozz.app.n8n.cloud/webhook/ask-bot"
 WEBHOOK_URL_UPLOAD = "https://baozz.app.n8n.cloud/webhook/upload-files"
 
