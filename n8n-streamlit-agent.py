@@ -114,11 +114,11 @@ def display_chat():
                 
                 col1, col2 = st.columns([0.1, 0.1])
                 with col1:
-                    if st.button("👍", key=f"thumbs_up_{i}", help="Hold (custom component needed for long-press)"):
+                    if st.button("👍", key=f"thumbs_up_{i}"):
                         st.session_state.messages[i]["feedback"] = "thumbs_up"
                         st.rerun()
                 with col2:
-                    if st.button("👎", key=f"thumbs_down_{i}", help="Hold (custom component needed for long-press)"):
+                    if st.button("👎", key=f"thumbs_down_{i}"):
                         st.session_state.messages[i]["feedback"] = "thumbs_down"
                         st.rerun()
             
