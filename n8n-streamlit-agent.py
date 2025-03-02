@@ -3,19 +3,25 @@ import streamlit as st
 import concurrent.futures
 from psycopg2.extras import DictCursor
 import psycopg2
+import uuid
+from dotenv import load_dotenv
 import os
 
-WEBHOOK_URL_CHAT = "https://baozz.app.n8n.cloud/webhook/ask-bot"
-WEBHOOK_URL_UPLOAD = "https://baozz.app.n8n.cloud/webhook/upload-files"
+load_dotenv()
+
+WEBHOOK_URL_CHAT = os.getenv("WEBHOOK_URL_CHAT")
+WEBHOOK_URL_UPLOAD = os.getenv("WEBHOOK_URL_UPLOAD")
+WEBHOOK_URL_RERANK = os.getenv("WEBHOOK_URL_RERANK")
 
 # Fetch variables for PostgreSQL connection
-USER = "postgres.fzeejyvlxgcbpwoeycky"
-PASSWORD = "BaO19112002@"
-HOST = "aws-0-ap-southeast-1.pooler.supabase.com"
-PORT = "5432"
-DBNAME = "postgres"
+USER = os.getenv("user")
+PASSWORD = os.getenv("password")
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
 
-BEARER_TOKEN= "191122"
+BEARER_TOKEN = os.getenv("BEARER_TOKEN")
+
 
 def get_connection():
     """Returns a new PostgreSQL connection."""
@@ -31,20 +37,34 @@ def get_connection():
 def login(user_name: str, password: str):
     try:
         conn = get_connection()
-        # Use a dictionary cursor to fetch rows as dictionaries
         cur = conn.cursor(cursor_factory=DictCursor)
-        cur.execute("SELECT * FROM users WHERE user_name = %s AND password = %s", (user_name, password))
-        row = cur.fetchone()
+        cur.execute("SELECT user_name FROM users WHERE user_name = %s AND password = %s", (user_name, password))
+        user = cur.fetchone()
+        if user is None:
+            return None
+        user = dict(user)
+
+        cur.execute("SELECT session_id FROM user_session WHERE user_name = %s", (user["user_name"], ))
+        session_ids = [session['session_id'] for session in cur.fetchall()]
+        cur.execute(
+            "SELECT metadata FROM documents WHERE metadata->>'user_name' = %s;",
+            (user_name,)
+        )
+        user_docs = [] 
+        for doc in cur.fetchall():
+            metadata = doc["metadata"]  # doc is a dict with key 'metadata'
+            if metadata["file_name"] not in user_docs:
+                user_docs.append(metadata["file_name"])
+
         cur.close()
         conn.close()
-        if row:
-            st.success("Login successful!")
-            return dict(row)
+        user["session_ids"] = session_ids
+        user["docs"] = user_docs
+        if user:
+            return user
         else:
-            st.error("Invalid email or password")
             return None
     except Exception as e:
-        st.error(f"Login failed: {str(e)}")
         return None
 
 def signup(user_name: str, password: str):
@@ -52,11 +72,9 @@ def signup(user_name: str, password: str):
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("INSERT INTO users (user_name, password) VALUES (%s, %s)", (user_name, password))
-        cur.execute("INSERT INTO user_information (memory, user_id) VALUES (%s, %s)", ("None", user_name))
         conn.commit()
         cur.close()
         conn.close()
-        st.success("Signup successful! Please log in.")
         return {"user_name": user_name, "password": password}
     except psycopg2.IntegrityError:
         st.error("Signup failed: Email already exists")
@@ -66,21 +84,47 @@ def signup(user_name: str, password: str):
         return None
 
 def init_session_state():
-    if "auth" not in st.session_state:
-        st.session_state.auth = None
+    if "user_data" not in st.session_state:
+        st.session_state.user_data = None
     if "session_id" not in st.session_state:
         st.session_state.session_id = None
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+def request_rerank():
+    try:
+        headers = {
+            "Authorization": BEARER_TOKEN,
+            "user_name": str(st.session_state.user_data['user_name']),
+            "session_id": str(st.session_state.session_id)
+        }
+        response = requests.get(WEBHOOK_URL_RERANK, headers=headers, timeout=120)
+        return response
+    except Exception as e:
+        return e
 
 def display_chat():
-    for message in st.session_state.messages:
+    for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+            if message["role"] == "ai":
+                if "feedback" in message:
+                    st.write(f"Feedback: {message['feedback']}")
+                
+                col1, col2 = st.columns([0.1, 0.1])
+                with col1:
+                    if st.button("👍", key=f"thumbs_up_{i}", help="Hold (custom component needed for long-press)"):
+                        st.session_state.messages[i]["feedback"] = "thumbs_up"
+                        st.rerun()
+                with col2:
+                    if st.button("👎", key=f"thumbs_down_{i}", help="Hold (custom component needed for long-press)"):
+                        st.session_state.messages[i]["feedback"] = "thumbs_down"
+                        st.rerun()
+            
+
 def handle_logout():
-    st.session_state.auth = None
+    st.session_state.user_data = None
     st.session_state.session_id = None
     st.session_state.messages = []
     st.rerun()
@@ -92,10 +136,11 @@ def auth_ui():
         user_name = st.text_input("Email", key="login_email")
         password = st.text_input("Password", type="password", key="login_password")
         if st.button("Login"):
-            auth = login(user_name, password)
-            if auth:
-                st.session_state.auth = auth
-                st.session_state.user_name = auth["user_name"]
+            user_data = login(user_name, password)
+            new_session_id = str(uuid.uuid4())
+            if user_data:
+                st.session_state.user_data = user_data
+                st.session_state.session_id = new_session_id
                 st.rerun()
 
     with tab2:
@@ -106,24 +151,46 @@ def auth_ui():
             if result:
                 st.success("Sign up successful! Please log in.")
 
+def get_user_document(user_name: str):
+    try:
+        conn = get_connection()
+        cur =conn.cursor(cursor_factory=DictCursor)
+        cur.execute(
+            "SELECT metadata FROM documents WHERE metadata->>'user_name' = %s;",
+            (user_name,)
+        )
+        docs = cur.fetchall()
+        if docs:
+            user_docs = [] 
+            for doc in docs:
+                metadata = doc["metadata"]
+                if metadata["file_name"] not in user_docs:
+                    user_docs.append(metadata["file_name"])
+            return user_docs
+        return None
+    except:
+        return None
+        
+
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
+
 def handle_binary_file_upload():
     """Handle multiple file uploads and submit binary data to webhook"""
     uploaded_files = st.sidebar.file_uploader(
         "Upload files", 
-        type=["txt", "pdf", "docx", "xlsx"], 
-        accept_multiple_files=True
+        type=["txt", "pdf", "xlsx"], 
+        accept_multiple_files=True,
+        key=f"uploader_{st.session_state['uploader_key']}"
     )
     
-    if uploaded_files and len(uploaded_files) > 0:
-        st.sidebar.success(f"{len(uploaded_files)} file(s) uploaded")
-        
+    if uploaded_files and len(uploaded_files) > 0:        
         if st.sidebar.button("Process Files"):
             with st.spinner("Uploading files..."):
                 files = []
                 
                 for uploaded_file in uploaded_files:
                     file_content = uploaded_file.getvalue()
-                    # Ensure file_content is in bytes. If it's a string, encode it.
                     if isinstance(file_content, str):
                         file_content = file_content.encode("utf-8")
                     
@@ -133,8 +200,6 @@ def handle_binary_file_upload():
                         file_type = "text/plain"
                     elif ext == "pdf":
                         file_type = "application/pdf"
-                    elif ext == "docx":
-                        file_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     elif ext == "xlsx":
                         file_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     else:
@@ -150,7 +215,8 @@ def handle_binary_file_upload():
                 # Headers with user information; update BEARER_TOKEN and other header details as needed
                 headers = {
                     "Authorization": BEARER_TOKEN,
-                    "user_id": str(st.session_state.auth['user_name'])
+                    "user_name": str(st.session_state.user_data['user_name']),
+                    "session_id": str(st.session_state.session_id)
                 }
                 
                 response = requests.post(
@@ -161,6 +227,9 @@ def handle_binary_file_upload():
                 
                 if response.status_code == 200:
                     st.sidebar.success("Files processed successfully!")
+                    st.session_state["uploader_key"] += 1
+                    st.session_state.user_data["docs"] = get_user_document(str(st.session_state.user_data["user_name"]))
+                    st.rerun()
                     return {"status": "success", "data": response.json()}
                 else:
                     st.sidebar.error(f"Error: {response.status_code} - {response.text}")
@@ -170,12 +239,100 @@ def handle_binary_file_upload():
     
     return None
 
+def get_full_chat_session(user_name: str):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT session_id FROM user_session WHERE user_name = %s", (user_name, ))
+        full_session = cur.fetchall()
+        cur.close()
+        conn.close()
+        if full_session:
+            session_ids = [session[0] for session in full_session]
+            return session_ids
+    except:
+        return None
+
+def get_chat_history(sessin_id: str):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT message FROM n8n_chat_histories WHERE session_id = %s", (sessin_id, ))
+        histories_chat = cur.fetchall()
+        cur.close()
+        conn.close()
+        if histories_chat:
+            chat_message = []
+            for chat in histories_chat:
+                chat = chat[0]
+                chat_message.append({"role": chat["type"], "content": chat["content"]})
+            return chat_message
+    except:
+        return None
+
+def select_chat_session():
+    sessions = st.session_state.user_data.get("session_ids", [])
+    if sessions is None:
+        sessions = []
+    sessions_with_new = ["New Chat Session"] + sessions
+    with st.sidebar.form(key="session_select_form"):
+        selected_session = st.selectbox("Select Chat Session", sessions_with_new)
+        submit_button = st.form_submit_button("Activate Session")
+        if submit_button:
+            if selected_session == "New Chat Session":
+                # Create a new session ID using uuid
+                new_session_id = str(uuid.uuid4())
+                st.session_state.session_id = new_session_id
+                st.session_state.messages = []
+            else:
+                st.session_state.session_id = selected_session
+                st.session_state.messages = get_chat_history(str(selected_session))
+                st.session_state.user_data["session_ids"] = get_full_chat_session(str(st.session_state.user_data['user_name']))
+            st.rerun()
+
+def delete_document(file_name):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM documents WHERE metadata->>'file_name' = %s", (file_name,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error deleting document: {e}")
+        return False
+
+def show_user_documents():
+    if "user_data" in st.session_state and st.session_state.user_data:
+        user_docs = st.session_state.user_data.get("docs", [])
+        if user_docs:
+            with st.expander("Your Documents"):
+                for doc in user_docs:
+                    col1, col2 = st.columns([0.8, 0.2])
+                    with col1:
+                        try:
+                            doc = str(doc).split("_", 1)[1]
+                        except:
+                            None
+                        st.write(f"- {doc}")
+                    with col2:
+                        if st.button("x", key=f"delete_{doc}"):
+                            if delete_document(doc):
+                                st.success(f"Document '{doc}' deleted successfully.")
+                                st.session_state.user_data["docs"].remove(doc)
+                                st.rerun()
+        else:
+            st.info("No documents found for your account.")
+    else:
+        st.warning("Please log in to see your documents.")
+
 
 def fetch_response(payload, headers):
     """Helper function to perform the HTTP request with a timeout."""
     try:
         # Adjust timeout as needed
-        response = requests.post(WEBHOOK_URL_CHAT, json=payload, headers=headers, timeout=60)
+        response = requests.post(WEBHOOK_URL_CHAT, json=payload, headers=headers, timeout=300)
         return response
     except Exception as e:
         return e
@@ -183,25 +340,29 @@ def fetch_response(payload, headers):
 def main():
     st.title("AI Chat Interface")
     init_session_state()
-
-    if st.session_state.auth is None:
+    print(st.session_state.user_data)
+    print(st.session_state.session_id)
+    if st.session_state.user_data is None:
         auth_ui()
     else:
-        st.sidebar.success(f"Logged in as {st.session_state.auth['user_name']}")
+        st.sidebar.success(f"Logged in as {st.session_state.user_data['user_name']}")
         if st.sidebar.button("Logout"):
             handle_logout()
         
-        handle_binary_file_upload()        
+        handle_binary_file_upload()    
+        select_chat_session()    
+        show_user_documents()
         display_chat()
 
         if prompt := st.chat_input("What is your message?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
+            st.session_state.messages.append({"role": "human", "content": prompt})
+            with st.chat_message("human"):
                 st.markdown(prompt)
 
             payload = {"question": prompt}
             headers = {
-                "user_id": st.session_state.auth['user_name'],
+                "session_id": str(st.session_state.session_id),
+                "user_name": st.session_state.user_data['user_name'],
                 "Authorization": BEARER_TOKEN,
             }
             
