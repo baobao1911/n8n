@@ -108,7 +108,7 @@ def display_chat():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-            if message["role"] == "ai":
+            if message["role"] == "assistant":
                 if "feedback" in message:
                     st.write(f"Feedback: {message['feedback']}")
                 
