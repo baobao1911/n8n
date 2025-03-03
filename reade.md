@@ -91,22 +91,7 @@ After login, user had access to main page.
 
 Give code bellow: 
 
-'
--- Create a table to store your documents
-create table if not exists documents (
-  id bigint primary key generated always as identity,
-  content text,
-  metadata jsonb, -- corresponds to Document.metadata
-  fts tsvector generated always as (to_tsvector('english', content)) stored,
-  embedding vector(1536)
-);
-
--- Create an index for the full-text search
-create index on documents using gin(fts);
-
--- Create an index for the semantic vector search
-create index on documents using hnsw (embedding vector_ip_ops);
-
+```
 -- Create a function to search for documents
 create or replace function match_documents (
   query_text text,
@@ -158,7 +143,9 @@ join documents d
 order by similarity desc
 limit least(match_count, 30);
 $$; 
-'
+
+```
+
  
 ![users](https://github.com/user-attachments/assets/fa903d6f-5067-40b2-914a-2c5b7004dc16)
 
