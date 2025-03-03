@@ -320,7 +320,7 @@ def show_user_documents():
                             if delete_document(doc):
                                 st.success(f"Document '{doc}' deleted successfully.")
                                 try:
-                                    st.session_state.user_data["docs"] = get_user_document(str(st.session_state.user_data["user_name"))
+                                    st.session_state.user_data["docs"] = get_user_document(str(st.session_state.user_data["user_name"]))
                                 except:
                                     None
                                 st.rerun()
