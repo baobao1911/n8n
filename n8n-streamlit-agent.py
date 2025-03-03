@@ -312,10 +312,9 @@ def show_user_documents():
                     col1, col2 = st.columns([0.8, 0.2])
                     with col1:
                         try:
-                            doc = str(doc).split("_", 1)[1]
+                            st.write(f"- {str(doc).split("_", 1)[1]}")
                         except:
-                            None
-                        st.write(f"- {doc}")
+                            st.write(f"- {doc}")
                     with col2:
                         if st.button("x", key=f"delete_{doc}"):
                             if delete_document(doc):
