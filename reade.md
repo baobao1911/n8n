@@ -87,6 +87,79 @@ After login, user had access to main page.
 
 **Chat Window**: Occupies the central area where the conversation with the AI takes place. Users can type their queries or prompts here and send them to the AI, which will respond with context from any activated session and selected documents.
 
+**Search Architecture**: The function combines full‐text and semantic vector searches to rank documents for RAG. It filters documents by metadata, scores them using both text relevance and embedding similarity (via reciprocal rank fusion), and returns the top results. 
+
+Give code bellow: 
+
+'
+-- Create a table to store your documents
+create table if not exists documents (
+  id bigint primary key generated always as identity,
+  content text,
+  metadata jsonb, -- corresponds to Document.metadata
+  fts tsvector generated always as (to_tsvector('english', content)) stored,
+  embedding vector(1536)
+);
+
+-- Create an index for the full-text search
+create index on documents using gin(fts);
+
+-- Create an index for the semantic vector search
+create index on documents using hnsw (embedding vector_ip_ops);
+
+-- Create a function to search for documents
+create or replace function match_documents (
+  query_text text,
+  query_embedding vector(1536),
+  match_count int default null,
+  filter jsonb default '{}',
+  full_text_weight float default 1,
+  semantic_weight float default 1,
+  rrf_k int default 50
+) 
+returns table (
+  id bigint,
+  content text,
+  metadata jsonb,
+  similarity float
+)
+language sql
+as $$
+with full_text as (
+  select
+    id,
+    row_number() over (order by ts_rank_cd(fts, websearch_to_tsquery(query_text)) desc) as rank_ix
+  from documents
+  where fts @@ websearch_to_tsquery(query_text)
+    and metadata @> filter
+  order by rank_ix
+  limit least(match_count, 30) * 2
+),
+semantic as (
+  select
+    id,
+    row_number() over (order by embedding <#> query_embedding) as rank_ix
+  from documents
+  where metadata @> filter
+  order by rank_ix
+  limit least(match_count, 30) * 2
+)
+select 
+  d.id,
+  d.content,
+  d.metadata,
+  coalesce(1.0 / (rrf_k + f.rank_ix), 0.0) * full_text_weight +
+  coalesce(1.0 / (rrf_k + s.rank_ix), 0.0) * semantic_weight as similarity
+from full_text f
+full outer join semantic s
+  on f.id = s.id
+join documents d
+  on coalesce(f.id, s.id) = d.id
+order by similarity desc
+limit least(match_count, 30);
+$$; 
+'
+ 
 ![users](https://github.com/user-attachments/assets/fa903d6f-5067-40b2-914a-2c5b7004dc16)
 
 **Users**: Table to store user's account.
