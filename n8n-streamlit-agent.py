@@ -108,7 +108,7 @@ def display_chat():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-            if i %2 != 0:
+            if message["role"] == "assistant":
                 if "feedback" in message:
                     st.write(f"Feedback: {message['feedback']}")
                 
@@ -116,13 +116,10 @@ def display_chat():
                 with col1:
                     if st.button("👍", key=f"thumbs_up_{i}"):
                         st.session_state.messages[i]["feedback"] = "thumbs_up"
-                        st.rerun()
                 with col2:
                     if st.button("👎", key=f"thumbs_down_{i}"):
                         st.session_state.messages[i]["feedback"] = "thumbs_down"
-                        st.rerun()
             
-
 def handle_logout():
     st.session_state.user_data = None
     st.session_state.session_id = None
