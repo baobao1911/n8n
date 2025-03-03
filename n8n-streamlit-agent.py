@@ -380,6 +380,7 @@ def main():
                     st.markdown(ai_message)
             else:
                 st.error(f"Error: {result.status_code} - {result.text}")
+        display_chat()
 
 if __name__ == "__main__":
     main()
