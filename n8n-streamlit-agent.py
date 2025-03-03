@@ -320,7 +320,10 @@ def show_user_documents():
                         if st.button("x", key=f"delete_{doc}"):
                             if delete_document(doc):
                                 st.success(f"Document '{doc}' deleted successfully.")
-                                st.session_state.user_data["docs"].remove(doc)
+                                try:
+                                    st.session_state.user_data["docs"].remove(doc)
+                                except:
+                                    None
                                 st.rerun()
         else:
             st.info("No documents found for your account.")
