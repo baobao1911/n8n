@@ -94,7 +94,7 @@ def init_session_state():
 def request_rerank():
     try:
         headers = {
-            "Authorization": f"Bearer {BEARER_TOKEN}",
+            "Authorization": BEARER_TOKEN,
             "user_name": str(st.session_state.user_data['user_name']),
             "session_id": str(st.session_state.session_id)
         }
@@ -211,7 +211,7 @@ def handle_binary_file_upload():
                 
                 # Headers with user information; update BEARER_TOKEN and other header details as needed
                 headers = {
-                    "Authorization": f"Bearer {BEARER_TOKEN}",
+                    "Authorization": BEARER_TOKEN,
                     "user_name": str(st.session_state.user_data['user_name']),
                     "session_id": str(st.session_state.session_id)
                 }
@@ -362,7 +362,7 @@ def main():
             headers = {
                 "session_id": str(st.session_state.session_id),
                 "user_name": st.session_state.user_data['user_name'],
-                "Authorization": f"Bearer {BEARER_TOKEN}",
+                "Authorization": BEARER_TOKEN,
             }
             
             with st.spinner("AI is thinking..."):
